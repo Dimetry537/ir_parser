@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Парсер тестов Infourok (Мобильная версия)</title>
+    <title>Парсер тестов Infourok</title>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -32,7 +32,6 @@
             line-height: 1.4;
         }
         
-        /* Кнопка загрузки файла */
         .file-upload-wrapper {
             text-align: center;
             margin-bottom: 15px;
@@ -133,11 +132,122 @@
             img, p { page-break-inside: avoid; }
             @page { margin: 1cm; }
         }
-   5.  **Шаг 5:** Откройте ваш сайт на GitHub Pages. Нажмите большую синюю кнопку **«📂 Загрузить скачанный файл»** и выберите тот самый `.html` файл, который вы только что скачали.
-6.  **Шаг 6:** Сайт мгновенно обработает файл и покажет чистый тест. Нажмите синюю кнопку **«🖨️ Сохранить как PDF / Распечатать»**. В открывшемся меню выберите «Сохранить как PDF» или сразу отправьте на принтер.
+    </style>
+</head>
+<body>
 
-> **💡 Совет для iPhone (iOS):** 
-> Safari не умеет нормально сохранять страницы как `.html` (он сохраняет как `.webarchive`, который наш парсер не прочитает). 
-> **Решение для iPhone:** Установите бесплатное приложение **"Documents by Readdle"** или любой браузер с функцией "Просмотр HTML-кода" (например, "View Source"). Скачайте страницу через него как `.html`, а затем загрузите этот файл на ваш сайт. Либо используйте Android-телефон, где в Chrome это делается в 2 касания (три точки → Скачать / Поделиться → Сохранить как HTML).
+<div class="container">
+    <h1>🖨️ Парсер тестов Infourok</h1>
+    
+    <div class="instructions no-print">
+        <strong>Способ 1 (Рекомендуется для телефона):</strong><br>
+        1. Сохраните страницу с тестом как файл `.html` (на Android: меню браузера → "Скачать" или "Сохранить как HTML").<br>
+        2. Нажмите синюю кнопку ниже и выберите этот скачанный файл.<br><br>
+        <strong>Способ 2 (Если есть компьютер):</strong><br>
+        Вставьте скопированный HTML-код в текстовое поле ниже и нажмите "Обработать код".
+    </div>
 
-Этот метод полностью избавляет вас от необходимости выделять и копировать тысячи строк кода на маленьком экране!
+    <!-- Способ 1: Загрузка файла -->
+    <div class="file-upload-wrapper no-print">
+        <label for="file-input" class="file-upload-label">📂 Загрузить скачанный HTML-файл</label>
+        <input type="file" id="file-input" accept=".html,.htm,.txt">
+    </div>
+
+    <div class="divider no-print">или</div>
+
+    <!-- Способ 2: Вставка кода -->
+    <div class="no-print">
+        <textarea id="code-input" placeholder="Или вставьте сюда скопированный HTML-код (F12 -> Copy outerHTML)..."></textarea>
+        <button class="btn-process" onclick="processCode()">⚙️ Обработать код</button>
+    </div>
+
+    <button class="btn-print" id="print-btn" onclick="window.print()">🖨️ Сохранить как PDF / Распечатать</button>
+
+    <div id="result-area">
+        <p style="text-align: center; color: #7f8c8d; font-family: sans-serif;">Здесь появится очищенный тест...</p>
+    </div>
+</div>
+
+<script>
+    // Обработка загрузки файла
+    document.getElementById('file-input').addEventListener('change', function(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const htmlContent = e.target.result;
+            parseAndDisplay(htmlContent);
+        };
+        reader.readAsText(file);
+    });
+
+    // Обработка вставки кода вручную
+    function processCode() {
+        const code = document.getElementById('code-input').value;
+        if (!code.trim()) {
+            alert('Пожалуйста, вставьте код в поле!');
+            return;
+        }
+        parseAndDisplay(code);
+    }
+
+    // Основная функция парсинга
+    function parseAndDisplay(htmlContent) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlContent, 'text/html');
+        
+        // Ищем основной блок с контентом
+        let targetNode = doc.querySelector('.document-content__text') || 
+                         doc.querySelector('.WordSection1') || 
+                         doc.body;
+
+        // 1. Удаляем пустые абзацы, которые создают огромные отступы
+        targetNode.querySelectorAll('p, span, div').forEach(el => {
+            if (!el.querySelector('img') && el.innerText.replace(/[\s\u00A0]/g, '') === '' && !el.querySelector('br')) {
+                el.remove();
+            }
+        });
+
+        // 2. Сбрасываем инлайн-стили, которые мешают отображению
+        targetNode.querySelectorAll('*').forEach(el => {
+            if (['P', 'B', 'STRONG', 'I', 'U', 'SPAN'].includes(el.tagName)) {
+                el.style.margin = '';
+                el.style.marginTop = '';
+                el.style.marginBottom = '';
+                el.style.lineHeight = '';
+                el.style.padding = '';
+            }
+            // Снимаем защиту от копирования
+            el.removeAttribute('oncontextmenu');
+            el.removeAttribute('onselectstart');
+            el.removeAttribute('oncopy');
+            el.removeAttribute('oncut');
+            el.removeAttribute('draggable');
+            if (el.style) {
+                el.style.userSelect = 'auto';
+                el.style.webkitUserSelect = 'auto';
+            }
+        });
+
+        // 3. Чиним картинки, чтобы они загружались с GitHub Pages
+        targetNode.querySelectorAll('img').forEach(img => {
+            img.setAttribute('referrerpolicy', 'no-referrer');
+            img.style.maxWidth = '100%';
+            img.style.height = 'auto';
+        });
+
+        // Выводим результат
+        const resultArea = document.getElementById('result-area');
+        resultArea.innerHTML = targetNode.innerHTML;
+        
+        // Показываем кнопку печати
+        document.getElementById('print-btn').style.display = 'block';
+        
+        // Прокручиваем к результату
+        resultArea.scrollIntoView({ behavior: 'smooth' });
+    }
+</script>
+
+</body>
+</html>
