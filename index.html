@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Очистка тестов Infourok для печати</title>
+    <title>Парсер тестов Infourok</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -37,7 +37,7 @@
             border: 2px solid #ddd;
             border-radius: 8px;
             font-family: monospace;
-            font-size: 13px;
+            font-size: 12px;
             resize: vertical;
             box-sizing: border-box;
         }
@@ -47,6 +47,7 @@
             display: inline-block;
             padding: 12px 24px;
             margin-top: 15px;
+            margin-right: 10px;
             border: none;
             border-radius: 8px;
             font-size: 16px;
@@ -59,40 +60,48 @@
         .btn-print { background-color: #2ecc71; color: white; display: none; }
         .btn-print:hover { background-color: #27ae60; }
 
+        /* Область с результатом */
         #result-area {
             margin-top: 30px;
-            padding: 20px;
+            padding: 40px;
             border: 2px dashed #bdc3c7;
             border-radius: 8px;
             background: #fff;
             min-height: 200px;
+            outline: none;
         }
+        #result-area:focus { border-color: #3498db; }
         
-        /* Стили для очищенного контента */
-        #clean-content {
+        /* Стили для очищенного контента (имитация Word-документа) */
+        #result-area, #result-area * {
             font-family: 'Times New Roman', Times, serif;
             font-size: 14pt;
             line-height: 1.5;
             color: #000;
         }
-        #clean-content img {
-            max-width: 100%;
-            height: auto;
-            display: block;
-            margin: 15px auto;
+        #result-area p { margin-bottom: 10px; }
+        #result-area img { 
+            max-width: 100%; 
+            height: auto; 
+            display: block; 
+            margin: 15px auto; 
         }
-        #clean-content p { margin-bottom: 12px; }
-        #clean-content b, #clean-content strong { font-weight: bold; }
+        #result-area b, #result-area strong { font-weight: bold; }
 
-        /* СТИЛИ ДЛЯ ПЕЧАТИ */
+        /* СТИЛИ ИСКЛЮЧИТЕЛЬНО ДЛЯ ПЕЧАТИ */
         @media print {
-            body { background: white; padding: 0; }
+            body { background: white; padding: 0; margin: 0; }
             .container { box-shadow: none; padding: 0; max-width: 100%; }
             .no-print { display: none !important; }
-            #result-area { border: none; padding: 0; margin: 0; }
-            #clean-content { font-size: 12pt; }
-            /* Принудительный разрыв страницы, если нужно */
-            .page-break { page-break-before: always; }
+            #result-area { 
+                border: none; 
+                padding: 0; 
+                margin: 0; 
+                font-size: 12pt; 
+            }
+            /* Запрещаем разрыв страниц внутри картинок и вопросов */
+            img, p { page-break-inside: avoid; }
+            @page { margin: 1.5cm; }
         }
     </style>
 </head>
@@ -100,14 +109,13 @@
 
 <div class="container">
     <div class="no-print">
-        <h1>🖨️ Очистка тестов Infourok</h1>
+        <h1>🖨️ Парсер тестов Infourok</h1>
         <div class="instructions">
             <strong>Как пользоваться:</strong><br>
-            1. Откройте нужный тест на Infourok.<br>
-            2. Нажмите <strong>F12</strong> (или ПКМ -> "Просмотреть код").<br>
-            3. Найдите элемент с классом <code>document-content__text</code> (или просто выделите весь код страницы через Ctrl+A в окне кода).<br>
-            4. Нажмите ПКМ на элементе -> <strong>Copy</strong> -> <strong>Copy outerHTML</strong>.<br>
-            5. Вставьте код в поле ниже и нажмите "Обработать".
+            1. Откройте тест на Infourok, нажмите <strong>F12</strong>.<br>
+            2. Во вкладке <em>Elements</em> найдите <code>&lt;div class="document-content__text"&gt;</code> (или просто скопируйте весь код страницы через <code>Ctrl+A</code> в окне кода).<br>
+            3. Нажмите ПКМ -> <strong>Copy</strong> -> <strong>Copy outerHTML</strong>.<br>
+            4. Вставьте код в поле ниже и нажмите "Обработать". Текст можно редактировать прямо в блоке ниже!
         </div>
         
         <textarea id="html-input" placeholder="Вставьте скопированный HTML-код сюда..."></textarea>
@@ -116,17 +124,16 @@
         <button class="btn btn-print" id="print-btn" onclick="window.print()">🖨️ Распечатать / Сохранить в PDF</button>
     </div>
 
-    <div id="result-area">
-        <div id="clean-content">
-            <p style="text-align: center; color: #7f8c8d;">Здесь появится очищенный тест, готовый к печати...</p>
-        </div>
+    <!-- contenteditable="true" позволяет редактировать текст прямо в браузере -->
+    <div id="result-area" contenteditable="true">
+        <p style="text-align: center; color: #7f8c8d; font-family: sans-serif;">Здесь появится очищенный тест. Вы сможете редактировать его прямо здесь...</p>
     </div>
 </div>
 
 <script>
     function processHTML() {
         const rawHTML = document.getElementById('html-input').value;
-        const cleanContent = document.getElementById('clean-content');
+        const resultArea = document.getElementById('result-area');
         const printBtn = document.getElementById('print-btn');
 
         if (!rawHTML.trim()) {
@@ -138,37 +145,47 @@
         const parser = new DOMParser();
         const doc = parser.parseFromString(rawHTML, 'text/html');
 
-        // Ищем нужный блок. Приоритет: .document-content__text, затем .WordSection1, затем body
+        // Ищем нужный блок с контентом
         let targetNode = doc.querySelector('.document-content__text') || 
                          doc.querySelector('.WordSection1') || 
+                         doc.querySelector('.material__viewer') ||
                          doc.body;
 
-        // Очищаем от мусора
-        const scripts = targetNode.querySelectorAll('script, style, nav, footer, header, button, iframe, noscript');
-        scripts.forEach(el => el.remove());
+        // 1. Удаляем мусорные теги
+        const junkSelectors = 'script, style, link, meta, svg, button, nav, footer, header, iframe, noscript, .iu-breadcrumbs, .material-author, .material-share, .material-actions, .material-rating, .other-materials, .topic-courses, .courses-search, .ai-banner, .document-content__footer';
+        targetNode.querySelectorAll(junkSelectors).forEach(el => el.remove());
 
-        // Удаляем инлайн-стили, которые могут мешать печати или выделению текста
-        const allElements = targetNode.querySelectorAll('*');
-        allElements.forEach(el => {
-            // Удаляем атрибуты, запрещающие выделение
+        // 2. ГЛАВНЫЙ СЕКРЕТ: Чиним картинки для GitHub Pages
+        // Добавляем referrerpolicy="no-referrer", чтобы сервер Infourok не блокировал их
+        targetNode.querySelectorAll('img').forEach(img => {
+            img.setAttribute('referrerpolicy', 'no-referrer');
+            img.style.maxWidth = '100%';
+            img.style.height = 'auto';
+        });
+
+        // 3. Снимаем защиту от копирования и выделения
+        targetNode.querySelectorAll('*').forEach(el => {
             el.removeAttribute('oncontextmenu');
             el.removeAttribute('onselectstart');
             el.removeAttribute('oncopy');
             el.removeAttribute('oncut');
             el.removeAttribute('draggable');
             
-            // Опционально: можно удалить все инлайн-стили, чтобы работали наши CSS
-            // el.removeAttribute('style'); 
+            // Разрешаем выделение текста, если сайт его запретил через inline-стили
+            if (el.style) {
+                el.style.userSelect = 'auto';
+                el.style.webkitUserSelect = 'auto';
+            }
         });
 
-        // Вставляем очищенный контент
-        cleanContent.innerHTML = targetNode.innerHTML;
+        // Вставляем очищенный контент в редактор
+        resultArea.innerHTML = targetNode.innerHTML;
         
         // Показываем кнопку печати
         printBtn.style.display = 'inline-block';
         
         // Прокручиваем к результату
-        document.getElementById('result-area').scrollIntoView({ behavior: 'smooth' });
+        resultArea.scrollIntoView({ behavior: 'smooth' });
     }
 </script>
 
