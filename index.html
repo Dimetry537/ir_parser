@@ -60,7 +60,6 @@
         .btn-print { background-color: #2ecc71; color: white; display: none; }
         .btn-print:hover { background-color: #27ae60; }
 
-        /* Область с результатом */
         #result-area {
             margin-top: 30px;
             padding: 40px;
@@ -76,13 +75,10 @@
         #result-area, #result-area * {
             font-family: 'Times New Roman', Times, serif;
             font-size: 14pt;
+            line-height: 1.4;
             color: #000;
         }
-        /* Делаем отступы между абзацами минимальными */
-        #result-area p { 
-            margin-bottom: 2px; 
-            line-height: 1.3; 
-        }
+        #result-area p { margin-bottom: 8px; }
         #result-area img { 
             max-width: 100%; 
             height: auto; 
@@ -91,19 +87,58 @@
         }
         #result-area b, #result-area strong { font-weight: bold; }
 
-        /* СТИЛИ ИСКЛЮЧИТЕЛЬНО ДЛЯ ПЕЧАТИ */
+        /* СТИЛИ ДЛЯ ПЕЧАТИ */
         @media print {
-            body { background: white; padding: 0; margin: 0; }
-            .container { box-shadow: none; padding: 0; max-width: 100%; }
-            .no-print { display: none !important; }
-            #result-area { 
-                border: none; 
-                padding: 0; 
-                margin: 0; 
-                font-size: 12pt; 
+            @page {
+                size: A4;
+                margin: 1.5cm;
             }
-            img, p { page-break-inside: avoid; }
-            @page { margin: 1.5cm; }
+            
+            body {
+                background: white;
+                padding: 0;
+                margin: 0;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            
+            .container {
+                box-shadow: none;
+                padding: 0;
+                max-width: 100%;
+                margin: 0;
+            }
+            
+            .no-print {
+                display: none !important;
+            }
+            
+            #result-area {
+                border: none;
+                padding: 0;
+                margin: 0;
+                font-size: 12pt;
+                line-height: 1.3;
+            }
+            
+            #result-area p {
+                margin-bottom: 6px;
+                orphans: 3;
+                widows: 3;
+            }
+            
+            #result-area img {
+                max-width: 100%;
+                height: auto;
+                page-break-inside: avoid;
+                break-inside: avoid;
+            }
+            
+            /* Запрещаем разрыв внутри вопроса */
+            #result-area .question-block {
+                page-break-inside: avoid;
+                break-inside: avoid;
+            }
         }
     </style>
 </head>
@@ -115,9 +150,10 @@
         <div class="instructions">
             <strong>Как пользоваться:</strong><br>
             1. Откройте тест на Infourok, нажмите <strong>F12</strong>.<br>
-            2. Во вкладке <em>Elements</em> найдите <code>&lt;div class="document-content__text"&gt;</code> (или просто скопируйте весь код страницы через <code>Ctrl+A</code> в окне кода).<br>
+            2. Во вкладке <em>Elements</em> найдите <code>&lt;div class="document-content__text"&gt;</code>.<br>
             3. Нажмите ПКМ -> <strong>Copy</strong> -> <strong>Copy outerHTML</strong>.<br>
-            4. Вставьте код в поле ниже и нажмите "Обработать". Текст можно редактировать прямо в блоке ниже!
+            4. Вставьте код в поле ниже и нажмите "Обработать".<br>
+            5. Для сохранения в PDF: нажмите "Распечатать" -> выберите "Сохранить как PDF".
         </div>
         
         <textarea id="html-input" placeholder="Вставьте скопированный HTML-код сюда..."></textarea>
@@ -127,7 +163,7 @@
     </div>
 
     <div id="result-area" contenteditable="true">
-        <p style="text-align: center; color: #7f8c8d; font-family: sans-serif;">Здесь появится очищенный тест. Вы сможете редактировать его прямо здесь...</p>
+        <p style="text-align: center; color: #7f8c8d; font-family: sans-serif;">Здесь появится очищенный тест...</p>
     </div>
 </div>
 
@@ -147,76 +183,67 @@
 
         let targetNode = doc.querySelector('.document-content__text') || 
                          doc.querySelector('.WordSection1') || 
-                         doc.querySelector('.material__viewer') ||
                          doc.body;
 
-        if (!targetNode) {
-            alert('Не удалось найти контент. Попробуйте скопировать OuterHTML тега <html>.');
-            return;
-        }
-
-        // 1. Удаляем мусорные теги (реклама, кнопки, скрипты)
+        // Удаляем мусорные теги
         const junkSelectors = 'script, style, link, meta, svg, button, nav, footer, header, iframe, noscript, .iu-breadcrumbs, .material-author, .material-share, .material-actions, .material-rating, .other-materials, .topic-courses, .courses-search, .ai-banner, .document-content__footer';
         targetNode.querySelectorAll(junkSelectors).forEach(el => el.remove());
 
-        // 2. ГЛАВНОЕ ИСПРАВЛЕНИЕ: Удаляем пустые абзацы и спаны, которые создают лишние отступы
+        // Удаляем пустые абзацы
         targetNode.querySelectorAll('p, span, div').forEach(el => {
             const hasImages = el.querySelector('img');
-            // Считаем текст, убирая пробелы и неразрывные пробелы (&nbsp;)
             const textContent = el.innerText.replace(/[\s\u00A0]/g, '');
-            if (!hasImages && textContent === '') {
+            if (!hasImages && textContent === '' && !el.querySelector('br')) {
                 el.remove();
             }
         });
 
-        // 3. Сбрасываем инлайн-стили, которые растягивают текст
-        targetNode.querySelectorAll('*').forEach(el => {
-            // Сбрасываем отступы и интервалы у текстовых элементов
-            if (el.tagName === 'P' || el.tagName === 'B' || el.tagName === 'STRONG' || el.tagName === 'I' || el.tagName === 'U') {
-                el.style.margin = '';
-                el.style.marginTop = '';
-                el.style.marginBottom = '';
-                el.style.lineHeight = '';
-                el.style.padding = '';
-            }
-            // У span сбрасываем только line-height, чтобы не сломать позиционирование картинок
-            if (el.tagName === 'SPAN') {
-                el.style.lineHeight = '';
-            }
-            
-            // Снимаем защиту от копирования
-            el.removeAttribute('oncontextmenu');
-            el.removeAttribute('onselectstart');
-            el.removeAttribute('oncopy');
-            el.removeAttribute('oncut');
-            el.removeAttribute('draggable');
-            
-            // Разрешаем выделение текста
-            if (el.style) {
-                el.style.userSelect = 'auto';
-                el.style.webkitUserSelect = 'auto';
-                el.style.display = '';
-                el.style.visibility = '';
-                el.style.opacity = '';
-                el.style.color = '';
-                el.style.backgroundColor = '';
-            }
-        });
-
-        // 4. Чиним картинки для GitHub Pages (обходим защиту от хотлинкинга)
+        // Чиним картинки
         targetNode.querySelectorAll('img').forEach(img => {
             img.setAttribute('referrerpolicy', 'no-referrer');
             img.style.maxWidth = '100%';
             img.style.height = 'auto';
         });
 
-        // Вставляем очищенный контент
+        // Снимаем защиту от копирования
+        targetNode.querySelectorAll('*').forEach(el => {
+            el.removeAttribute('oncontextmenu');
+            el.removeAttribute('onselectstart');
+            el.removeAttribute('oncopy');
+            el.removeAttribute('oncut');
+            el.removeAttribute('draggable');
+            
+            if (el.style) {
+                el.style.userSelect = 'auto';
+                el.style.webkitUserSelect = 'auto';
+            }
+        });
+
+        // Оборачиваем вопросы в блоки для предотвращения разрывов
+        const paragraphs = targetNode.querySelectorAll('p');
+        let currentBlock = null;
+        
+        paragraphs.forEach(p => {
+            const text = p.innerText.trim();
+            // Если это начало вопроса (цифра с точкой)
+            if (/^\d+\./.test(text)) {
+                currentBlock = document.createElement('div');
+                currentBlock.className = 'question-block';
+                p.parentNode.insertBefore(currentBlock, p);
+                currentBlock.appendChild(p);
+            } else if (currentBlock) {
+                // Если это продолжение вопроса (варианты ответов)
+                if (text.startsWith('а)') || text.startsWith('б)') || text.startsWith('в)') || 
+                    text.startsWith('А.') || text.startsWith('Б.') || text.startsWith('В.') || text.startsWith('Г.')) {
+                    currentBlock.appendChild(p);
+                } else {
+                    currentBlock = null;
+                }
+            }
+        });
+
         resultArea.innerHTML = targetNode.innerHTML;
-        
-        // Показываем кнопку печати
         printBtn.style.display = 'inline-block';
-        
-        // Прокручиваем к результату
         resultArea.scrollIntoView({ behavior: 'smooth' });
     }
 </script>
