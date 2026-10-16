@@ -47,6 +47,7 @@
             cursor: pointer;
             width: 100%;
             text-align: center;
+            transition: background-color 0.2s;
         }
         .file-upload-label:active { background-color: #2980b9; }
         #file-input { display: none; }
@@ -141,16 +142,17 @@
     
     <div class="instructions no-print">
         <strong>Способ 1 (Рекомендуется для телефона):</strong><br>
-        1. Сохраните страницу с тестом как файл `.html` (на Android: меню браузера → "Скачать" или "Сохранить как HTML").<br>
-        2. Нажмите синюю кнопку ниже и выберите этот скачанный файл.<br><br>
+        1. Сохраните страницу с тестом (в Chrome на Android это часто сохраняется как <code>.mht</code> или <code>.html</code>).<br>
+        2. Нажмите синюю кнопку ниже и выберите этот сохраненный файл.<br>
+        <em>(Поддерживаются форматы: .html, .htm, .mht, .mhtml, .txt)</em><br><br>
         <strong>Способ 2 (Если есть компьютер):</strong><br>
         Вставьте скопированный HTML-код в текстовое поле ниже и нажмите "Обработать код".
     </div>
 
     <!-- Способ 1: Загрузка файла -->
     <div class="file-upload-wrapper no-print">
-        <label for="file-input" class="file-upload-label">📂 Загрузить скачанный HTML-файл</label>
-        <input type="file" id="file-input" accept=".html,.htm,.txt">
+        <label for="file-input" class="file-upload-label">📂 Загрузить сохраненный файл страницы</label>
+        <input type="file" id="file-input" accept=".html,.htm,.txt,.mht,.mhtml">
     </div>
 
     <div class="divider no-print">или</div>
@@ -169,6 +171,33 @@
 </div>
 
 <script>
+    // Функция для извлечения чистого HTML из MHT/MHTML файла
+    function extractHtmlFromMht(mhtText) {
+        // Если это не похоже на MHT файл, возвращаем как есть
+        if (!mhtText.includes('MIME-Version:') && !mhtText.includes('boundary=')) {
+            return mhtText;
+        }
+
+        // Ищем границу (boundary) между частями MIME-архива
+        const boundaryMatch = mhtText.match(/boundary="?(.*?)"?[\r\n]/i);
+        if (!boundaryMatch) return mhtText; // Если не нашли, возвращаем исходный текст
+
+        const boundary = boundaryMatch[1];
+        const parts = mhtText.split('--' + boundary);
+
+        // Ищем часть, которая содержит именно HTML-код страницы
+        for (let part of parts) {
+            if (part.includes('Content-Type: text/html')) {
+                // HTML контент начинается после двойного переноса строки (конец заголовков MIME-части)
+                const headerEnd = part.search(/\r\n\r\n|\n\n/);
+                if (headerEnd !== -1) {
+                    return part.substring(headerEnd + 2); // +2 чтобы пропустить символы переноса строки
+                }
+            }
+        }
+        return mhtText; // Резервный вариант, если HTML-часть не найдена
+    }
+
     // Обработка загрузки файла
     document.getElementById('file-input').addEventListener('change', function(event) {
         const file = event.target.files[0];
@@ -176,10 +205,18 @@
 
         const reader = new FileReader();
         reader.onload = function(e) {
-            const htmlContent = e.target.result;
+            let htmlContent = e.target.result;
+            
+            // Если файл имеет расширение mht или mhtml, извлекаем из него чистый HTML
+            const fileName = file.name.toLowerCase();
+            if (fileName.endsWith('.mht') || fileName.endsWith('.mhtml')) {
+                htmlContent = extractHtmlFromMht(htmlContent);
+            }
+            
             parseAndDisplay(htmlContent);
         };
-        reader.readAsText(file);
+        // Читаем файл как текст, чтобы мы могли найти и извлечь HTML из MHT
+        reader.readAsText(file); 
     });
 
     // Обработка вставки кода вручную
@@ -192,7 +229,7 @@
         parseAndDisplay(code);
     }
 
-    // Основная функция парсинга
+    // Основная функция парсинга и отображения
     function parseAndDisplay(htmlContent) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(htmlContent, 'text/html');
@@ -211,7 +248,7 @@
 
         // 2. Сбрасываем инлайн-стили, которые мешают отображению
         targetNode.querySelectorAll('*').forEach(el => {
-            if (['P', 'B', 'STRONG', 'I', 'U', 'SPAN'].includes(el.tagName)) {
+            if (['P', 'B', 'STRONG', 'I', 'U', 'SPAN', 'TD', 'TR', 'TABLE'].includes(el.tagName)) {
                 el.style.margin = '';
                 el.style.marginTop = '';
                 el.style.marginBottom = '';
@@ -230,9 +267,11 @@
             }
         });
 
-        // 3. Чиним картинки, чтобы они загружались с GitHub Pages
+        // 3. Чиним картинки (для обычных HTML ссылок добавляем no-referrer, Base64 картинки из MHT и так работают)
         targetNode.querySelectorAll('img').forEach(img => {
-            img.setAttribute('referrerpolicy', 'no-referrer');
+            if (img.src.startsWith('http')) {
+                img.setAttribute('referrerpolicy', 'no-referrer');
+            }
             img.style.maxWidth = '100%';
             img.style.height = 'auto';
         });
