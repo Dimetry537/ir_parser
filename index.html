@@ -122,6 +122,7 @@
             line-height: 1.4;
             color: #000;
         }
+        #result-area:focus { border: 2px solid #3498db; }
         #result-area p { margin-bottom: 8px; }
         #result-area img { max-width: 100%; height: auto; display: block; margin: 10px auto; }
 
@@ -165,12 +166,48 @@
 
     <button class="btn-print" id="print-btn" onclick="window.print()">🖨️ Сохранить как PDF / Распечатать</button>
 
+    <div class="instructions no-print" id="edit-hint" style="display: none; margin-top: 15px;">
+        ✏️ Текст ниже можно редактировать: кликните в нужное место и правьте прямо перед печатью.
+    </div>
+
     <div id="result-area">
         <p style="text-align: center; color: #7f8c8d; font-family: sans-serif;">Здесь появится очищенный тест...</p>
     </div>
 </div>
 
 <script>
+    // Декодирование quoted-printable: =D0=9F -> байты
+    function qpToBytes(text) {
+        const clean = text.replace(/=\r?\n/g, ''); // мягкие переносы строк
+        const bytes = [];
+        for (let i = 0; i < clean.length; i++) {
+            if (clean[i] === '=' && /^[0-9A-Fa-f]{2}$/.test(clean.substring(i + 1, i + 3))) {
+                bytes.push(parseInt(clean.substring(i + 1, i + 3), 16));
+                i += 2;
+            } else {
+                bytes.push(clean.charCodeAt(i) & 0xFF);
+            }
+        }
+        return new Uint8Array(bytes);
+    }
+
+    function decodeQuotedPrintable(text, charset) {
+        const bytes = qpToBytes(text);
+        try {
+            return new TextDecoder(charset || 'utf-8').decode(bytes);
+        } catch (e) {
+            return new TextDecoder('utf-8').decode(bytes);
+        }
+    }
+
+    function bytesToBase64(bytes) {
+        let bin = '';
+        for (let i = 0; i < bytes.length; i += 8192) {
+            bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+        }
+        return btoa(bin);
+    }
+
     // Функция для извлечения чистого HTML из MHT/MHTML файла
     function extractHtmlFromMht(mhtText) {
         // Если это не похоже на MHT файл, возвращаем как есть
@@ -189,13 +226,60 @@
         for (let part of parts) {
             if (part.includes('Content-Type: text/html')) {
                 // HTML контент начинается после двойного переноса строки (конец заголовков MIME-части)
-                const headerEnd = part.search(/\r\n\r\n|\n\n/);
-                if (headerEnd !== -1) {
-                    return part.substring(headerEnd + 2); // +2 чтобы пропустить символы переноса строки
+                const sepMatch = part.match(/\r\n\r\n|\n\n/);
+                if (sepMatch) {
+                    const headers = part.substring(0, sepMatch.index);
+                    let body = part.substring(sepMatch.index + sepMatch[0].length);
+                    if (/Content-Transfer-Encoding:\s*quoted-printable/i.test(headers)) {
+                        const charsetMatch = headers.match(/charset="?([\w-]+)"?/i);
+                        body = decodeQuotedPrintable(body, charsetMatch ? charsetMatch[1] : 'utf-8');
+                    }
+                    return body;
                 }
             }
         }
         return mhtText; // Резервный вариант, если HTML-часть не найдена
+    }
+
+    // Собираем картинки из MIME-частей MHT: Content-Location / cid:Content-ID -> data URL
+    function extractMhtResources(mhtText) {
+        const resources = {};
+        const boundaryMatch = mhtText.match(/boundary="?(.*?)"?[\r\n]/i);
+        if (!boundaryMatch) return resources;
+
+        const parts = mhtText.split('--' + boundaryMatch[1]);
+        for (let part of parts) {
+            const sepMatch = part.match(/\r\n\r\n|\n\n/);
+            if (!sepMatch) continue;
+            const headers = part.substring(0, sepMatch.index);
+            const typeMatch = headers.match(/Content-Type:\s*(image\/[\w.+-]+)/i);
+            if (!typeMatch) continue;
+
+            let body = part.substring(sepMatch.index + sepMatch[0].length).replace(/\r?\n$/, '');
+            let base64;
+            if (/Content-Transfer-Encoding:\s*base64/i.test(headers)) {
+                base64 = body.replace(/\s/g, '');
+            } else if (/Content-Transfer-Encoding:\s*quoted-printable/i.test(headers)) {
+                base64 = bytesToBase64(qpToBytes(body));
+            } else {
+                continue; // 8bit-бинарные части через readAsText не прочитать корректно
+            }
+            const dataUrl = 'data:' + typeMatch[1].toLowerCase() + ';base64,' + base64;
+
+            const locMatch = headers.match(/Content-Location:\s*(\S+)/i);
+            if (locMatch) resources[locMatch[1]] = dataUrl;
+            const idMatch = headers.match(/Content-ID:\s*<?([^>\s]+)>?/i);
+            if (idMatch) resources['cid:' + idMatch[1]] = dataUrl;
+        }
+        return resources;
+    }
+
+    // Заменяем ссылки на картинки в HTML на data URL из карты ресурсов MHT
+    function inlineMhtImages(htmlText, resources) {
+        return htmlText.replace(/(<img\b[^>]*?\ssrc\s*=\s*)(["'])([^"']*)\2/gi, (match, pre, quote, src) => {
+            const key = src.replace(/&amp;/g, '&');
+            return resources[key] ? pre + quote + resources[key] + quote : match;
+        });
     }
 
     // Обработка загрузки файла
@@ -210,7 +294,8 @@
             // Если файл имеет расширение mht или mhtml, извлекаем из него чистый HTML
             const fileName = file.name.toLowerCase();
             if (fileName.endsWith('.mht') || fileName.endsWith('.mhtml')) {
-                htmlContent = extractHtmlFromMht(htmlContent);
+                const resources = extractMhtResources(htmlContent);
+                htmlContent = inlineMhtImages(extractHtmlFromMht(htmlContent), resources);
             }
             
             parseAndDisplay(htmlContent);
@@ -279,9 +364,12 @@
         // Выводим результат
         const resultArea = document.getElementById('result-area');
         resultArea.innerHTML = targetNode.innerHTML;
-        
-        // Показываем кнопку печати
+        resultArea.contentEditable = 'true';
+        resultArea.spellcheck = false;
+
+        // Показываем кнопку печати и подсказку о редактировании
         document.getElementById('print-btn').style.display = 'block';
+        document.getElementById('edit-hint').style.display = 'block';
         
         // Прокручиваем к результату
         resultArea.scrollIntoView({ behavior: 'smooth' });

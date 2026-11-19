@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la /mnt/d/projects/ir_parser && find . -maxdepth 2 -type f \\\\\\( -name \"*.py\" -o -name \"*.js\" -o -name \"*.html\" -o -name \"*.md\" -o -name \"*.json\" \\\\\\) | grep -v node_modules | head -50)",
+      "Bash(which chromium chromium-browser google-chrome firefox 2>/dev/null; node -e \"try{require.resolve\\('jsdom'\\);console.log\\('jsdom ok'\\)}catch\\(e\\){console.log\\('no jsdom'\\)}\")",
+      "Bash(node:*)"
+    ]
+  }
+}
