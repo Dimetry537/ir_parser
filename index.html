@@ -70,6 +70,13 @@
         .divider::before { left: 0; }
         .divider::after { right: 0; }
 
+        #url-input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+        }
         textarea {
             width: 100%;
             height: 120px;
@@ -106,6 +113,8 @@
             cursor: pointer;
             display: none;
         }
+        #clean-btn { background-color: #e67e22; margin-top: 10px; }
+        #clean-btn:active { background-color: #d35400; }
 
         #result-area {
             margin-top: 20px;
@@ -139,18 +148,29 @@
 <body>
 
 <div class="container">
-    <h1>🖨️ Парсер тестов Infourok</h1>
+    <h1 class="no-print">🖨️ Парсер тестов Infourok</h1>
     
     <div class="instructions no-print">
-        <strong>Способ 1 (Рекомендуется для телефона):</strong><br>
+        <strong>Способ 1 (Самый быстрый):</strong><br>
+        Вставьте адрес страницы с тестом в поле ниже и нажмите "Загрузить по ссылке".<br>
+        <em>(Нужен интернет; работает не со всеми сайтами — если не получилось, используйте способ 2.)</em><br><br>
+        <strong>Способ 2 (Рекомендуется для телефона):</strong><br>
         1. Сохраните страницу с тестом (в Chrome на Android это часто сохраняется как <code>.mht</code> или <code>.html</code>).<br>
         2. Нажмите синюю кнопку ниже и выберите этот сохраненный файл.<br>
         <em>(Поддерживаются форматы: .html, .htm, .mht, .mhtml, .txt)</em><br><br>
-        <strong>Способ 2 (Если есть компьютер):</strong><br>
+        <strong>Способ 3 (Если есть компьютер):</strong><br>
         Вставьте скопированный HTML-код в текстовое поле ниже и нажмите "Обработать код".
     </div>
 
-    <!-- Способ 1: Загрузка файла -->
+    <!-- Способ 1: Загрузка по ссылке -->
+    <div class="no-print">
+        <input type="url" id="url-input" placeholder="Адрес страницы с тестом, например https://infourok.ru/test-...">
+        <button class="btn-process" id="url-btn" onclick="processUrl()">🌐 Загрузить по ссылке</button>
+    </div>
+
+    <div class="divider no-print">или</div>
+
+    <!-- Способ 2: Загрузка файла -->
     <div class="file-upload-wrapper no-print">
         <label for="file-input" class="file-upload-label">📂 Загрузить сохраненный файл страницы</label>
         <input type="file" id="file-input" accept=".html,.htm,.txt,.mht,.mhtml">
@@ -158,16 +178,17 @@
 
     <div class="divider no-print">или</div>
 
-    <!-- Способ 2: Вставка кода -->
+    <!-- Способ 3: Вставка кода -->
     <div class="no-print">
         <textarea id="code-input" placeholder="Или вставьте сюда скопированный HTML-код (F12 -> Copy outerHTML)..."></textarea>
         <button class="btn-process" onclick="processCode()">⚙️ Обработать код</button>
     </div>
 
-    <button class="btn-print" id="print-btn" onclick="window.print()">🖨️ Сохранить как PDF / Распечатать</button>
+    <button class="btn-print no-print" id="clean-btn" onclick="cleanExtraSpaces()">🧹 Убрать лишние пробелы</button>
+    <button class="btn-print no-print" id="print-btn" onclick="window.print()">🖨️ Сохранить как PDF / Распечатать</button>
 
     <div class="instructions no-print" id="edit-hint" style="display: none; margin-top: 15px;">
-        ✏️ Текст ниже можно редактировать: кликните в нужное место и правьте прямо перед печатью.
+        ✏️ Текст ниже можно редактировать: кликните в нужное место и правьте прямо перед печатью. Кнопка «Убрать лишние пробелы» сожмёт повторные пробелы и удалит пустые строки.
     </div>
 
     <div id="result-area">
@@ -314,6 +335,78 @@
         parseAndDisplay(code);
     }
 
+    // Загрузка страницы по ссылке через публичные CORS-прокси
+    async function processUrl() {
+        const url = document.getElementById('url-input').value.trim();
+        if (!/^https?:\/\/.+\..+/i.test(url)) {
+            alert('Вставьте полный адрес страницы, начиная с http:// или https://');
+            return;
+        }
+        const btn = document.getElementById('url-btn');
+        btn.disabled = true;
+        btn.textContent = '⏳ Загружаем страницу...';
+
+        const proxies = [
+            {
+                makeUrl: u => 'https://api.allorigins.win/get?url=' + encodeURIComponent(u),
+                extract: async resp => (await resp.json()).contents
+            },
+            {
+                makeUrl: u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u),
+                extract: resp => resp.text()
+            }
+        ];
+        let html = null;
+        let botProtection = false;
+        for (let proxy of proxies) {
+            try {
+                const resp = await fetch(proxy.makeUrl(url), { signal: AbortSignal.timeout(25000) });
+                if (!resp.ok) continue;
+                const text = await proxy.extract(resp);
+                if (/__qrator|qauth\.js|cf-chl|challenge-platform/i.test(text)) {
+                    botProtection = true; // сайт показал антибот-заглушку вместо контента
+                    continue;
+                }
+                if (text && text.length > 500 && /<html|<body|<div|<p/i.test(text)) {
+                    html = text;
+                    break;
+                }
+            } catch (e) { /* прокси недоступен — пробуем следующий */ }
+        }
+
+        btn.disabled = false;
+        btn.textContent = '🌐 Загрузить по ссылке';
+        if (html) {
+            parseAndDisplay(html);
+        } else if (botProtection) {
+            alert('Этот сайт защищён от автоматической загрузки и не отдаёт тест по ссылке. Откройте страницу в браузере, сохраните её в файл (способ 2) и загрузите файл.');
+        } else {
+            alert('Не удалось загрузить страницу по ссылке. Сохраните страницу в файл (способ 2) и загрузите его кнопкой выше.');
+        }
+    }
+
+    // Сжимаем повторные пробелы (включая неразрывные) в один
+    function collapseSpaces(text) {
+        return text.replace(/[ \t\u00A0]{2,}/g, ' ');
+    }
+
+    // Чистка лишних пробелов и пустых строк в окне результата
+    function cleanExtraSpaces() {
+        const area = document.getElementById('result-area');
+        const walker = document.createTreeWalker(area, NodeFilter.SHOW_TEXT);
+        const textNodes = [];
+        while (walker.nextNode()) textNodes.push(walker.currentNode);
+        textNodes.forEach(n => { n.nodeValue = collapseSpaces(n.nodeValue); });
+
+        area.querySelectorAll('p, div, li, td, h1, h2, h3, h4').forEach(block => {
+            const first = block.firstChild;
+            if (first && first.nodeType === 3) first.nodeValue = first.nodeValue.replace(/^[ \t\u00A0]+/, '');
+            const last = block.lastChild;
+            if (last && last.nodeType === 3) last.nodeValue = last.nodeValue.replace(/[ \t\u00A0]+$/, '');
+            if (!block.querySelector('img, br, table') && block.textContent.trim() === '') block.remove();
+        });
+    }
+
     // Основная функция парсинга и отображения
     function parseAndDisplay(htmlContent) {
         const parser = new DOMParser();
@@ -366,9 +459,11 @@
         resultArea.innerHTML = targetNode.innerHTML;
         resultArea.contentEditable = 'true';
         resultArea.spellcheck = false;
+        cleanExtraSpaces();
 
         // Показываем кнопку печати и подсказку о редактировании
         document.getElementById('print-btn').style.display = 'block';
+        document.getElementById('clean-btn').style.display = 'block';
         document.getElementById('edit-hint').style.display = 'block';
         
         // Прокручиваем к результату
